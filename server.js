@@ -10,8 +10,12 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 const TWILIO_PHONE = process.env.TWILIO_PHONE;
+app.get('/', (req, res) => {
+  res.send('Twilio SMS API is working ✅');
+});
 app.post('/send-message', async (req, res) => {
   const { to, message } = req.body;
+
 
   try {
     const result = await client.messages.create({
