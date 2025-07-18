@@ -6,12 +6,12 @@ const axios = require('axios');
 const twilio = require('twilio');
 
 const app = express();
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
+
+// ✅ CORS
 app.use(
   cors({
     origin: [
-      'https://heartsinthemiddle.org', // ✅ No trailing slash
+      'https://heartsinthemiddle.org',
       'https://heartmessage.onrender.com',
     ],
     methods: ['GET', 'POST'],
@@ -19,42 +19,65 @@ app.use(
   })
 );
 
-// Twilio credentials from .env
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+
+// ✅ Twilio setup
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioClient = twilio(accountSid, authToken);
 const twilioNumber = process.env.TWILIO_PHONE;
 
+// ✅ Map options
+const optionsMap = {
+  A: 'I love you, son ❤️',
+  B: 'You’re doing great!',
+  C: 'Keep going! Proud of you.',
+  D: 'Stay strong and focused!',
+};
+
+// ✅ Home route
 app.get('/', (req, res) => {
-  res.send('Welcome to the Twilio SMS Backend!');
+  res.send('Twilio SMS + LRS backend is running.');
 });
 
-// ✅ Send SMS to specific number
+// ✅ Send message to father
 app.post('/start-webhook', async (req, res) => {
-  const { userId } = req.body;
-
-  const sms = `Please choose one of the following options and reply with the letter:\nA) Option A\nB) Option B\nC) Option C\nD) Option D`;
+  const message = `Your child has started the course!\nPlease choose one of the following responses:\n\nA) I love you, son ❤️\nB) You’re doing great!\nC) Keep going! Proud of you.\nD) Stay strong and focused!\n\nReply with A, B, C, or D.`;
 
   try {
-    await twilioClient.messages.create({
-      body: sms,
+    const result = await twilioClient.messages.create({
+      body: message,
       from: twilioNumber,
-      to: '+923267514362', // ✅ Correct format
+      to: '+923216832148', // ✅ Hardcoded father number
     });
 
-    res.json({ status: 'Message sent to Father via Twilio' });
-  } catch (err) {
-    console.error('Twilio error:', err.message);
-    res.status(500).send('Twilio message failed');
+    console.log('✅ SMS sent to father:', result.sid);
+
+    res.json({
+      status: '✅ SMS sent successfully!',
+      message:
+        'A motivational message was sent to the father. Awaiting reply (A, B, C, or D).',
+      sid: result.sid, // Twilio message ID
+      to: result.to,
+      from: result.from,
+    });
+  } catch (error) {
+    console.error('❌ Twilio send error:', error.message);
+    res.status(500).json({
+      error: '❌ Failed to send SMS to father.',
+      details: error.message,
+    });
   }
 });
 
-// ✅ Receive response and store in LRS
+// ✅ Receive reply from father and store in LRS
 app.post('/twilio-reply', async (req, res) => {
+  console.log('twillio reply received:', req.body);
   const selectedOption = req.body.Body?.trim().toUpperCase();
   const fromNumber = req.body.From;
 
-  console.log(`Father replied: ${selectedOption}`);
+  console.log(`📩 Father replied: ${selectedOption}`);
 
   const statement = {
     actor: {
@@ -78,7 +101,7 @@ app.post('/twilio-reply', async (req, res) => {
       contextActivities: {
         parent: [
           {
-            id: `https://heartsinthemiddle.org/student/unknown`,
+            id: 'https://heartsinthemiddle.org/student/unknown',
             definition: {
               name: { 'en-US': 'Response from Father' },
             },
@@ -89,7 +112,7 @@ app.post('/twilio-reply', async (req, res) => {
   };
 
   try {
-    await axios.post(`${process.env.LRS_URL}`, statement, {
+    await axios.post(process.env.LRS_URL, statement, {
       auth: {
         username: process.env.LRS_USER_NAME,
         password: process.env.LRS_PASSWORD,
@@ -104,15 +127,16 @@ app.post('/twilio-reply', async (req, res) => {
 <Response>
   <Message>Thanks! Your response has been recorded.</Message>
 </Response>`);
-  } catch (err) {
-    console.error('LRS save error:', err.message);
+  } catch (error) {
+    console.error('❌ LRS save error:', error.message);
     res.status(500).send('Failed to save to LRS');
   }
 });
-// ✅ Retrieve Father's Response from LRS
+
+// ✅ Get Father's response from LRS
 app.get('/father-response', async (req, res) => {
   try {
-    const response = await axios.get(`${process.env.LRS_URL}`, {
+    const lrsResponse = await axios.get(process.env.LRS_URL, {
       auth: {
         username: process.env.LRS_USER_NAME,
         password: process.env.LRS_PASSWORD,
@@ -122,23 +146,25 @@ app.get('/father-response', async (req, res) => {
       },
       params: {
         verb: 'http://adlnet.gov/expapi/verbs/answered',
+        activity: 'https://heartsinthemiddle.org/page8/father-response',
         limit: 1,
         ascending: false,
       },
     });
 
-    const latest = response.data.statements[0];
-    const option =
-      latest?.object?.definition?.name?.['en-US'] || 'No response yet';
+    const statement = lrsResponse.data.statements?.[0];
+    const raw = statement?.result?.response || 'No response yet';
+    const response = optionsMap[raw] || 'Unknown response';
 
-    res.json({ response: option });
-  } catch (err) {
-    console.error('Error fetching LRS:', err.message);
+    res.json({ response, raw });
+  } catch (error) {
+    console.error('❌ Error fetching from LRS:', error.message);
     res.status(500).json({ error: 'Could not fetch response' });
   }
 });
 
+// ✅ Start server
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`🚀 Server running at http://localhost:${port}`);
+  console.log(`🚀 Server is live: http://localhost:${port}`);
 });
