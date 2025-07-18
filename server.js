@@ -6,9 +6,18 @@ const axios = require('axios');
 const twilio = require('twilio');
 
 const app = express();
-app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+app.use(
+  cors({
+    origin: [
+      'https://heartsinthemiddle.org', // ✅ No trailing slash
+      'https://heartmessage.onrender.com',
+    ],
+    methods: ['GET', 'POST'],
+    credentials: false,
+  })
+);
 
 // Twilio credentials from .env
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -47,6 +56,38 @@ app.post('/twilio-reply', async (req, res) => {
 
   console.log(`Father replied: ${selectedOption}`);
 
+  const statement = {
+    actor: {
+      mbox: 'mailto:father@yourdomain.com',
+      name: 'Father',
+    },
+    verb: {
+      id: 'http://adlnet.gov/expapi/verbs/answered',
+      display: { 'en-US': 'answered' },
+    },
+    object: {
+      id: 'https://heartsinthemiddle.org/page8/father-response',
+      definition: {
+        name: { 'en-US': 'Father Page 8 Response' },
+      },
+    },
+    result: {
+      response: selectedOption,
+    },
+    context: {
+      contextActivities: {
+        parent: [
+          {
+            id: `https://heartsinthemiddle.org/student/unknown`,
+            definition: {
+              name: { 'en-US': 'Response from Father' },
+            },
+          },
+        ],
+      },
+    },
+  };
+
   try {
     await axios.post(`${process.env.LRS_URL}`, statement, {
       auth: {
@@ -68,7 +109,6 @@ app.post('/twilio-reply', async (req, res) => {
     res.status(500).send('Failed to save to LRS');
   }
 });
-
 // ✅ Retrieve Father's Response from LRS
 app.get('/father-response', async (req, res) => {
   try {
