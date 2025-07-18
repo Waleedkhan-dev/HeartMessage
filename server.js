@@ -1,36 +1,104 @@
+require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const bodyParser = require('body-parser');
+const cors = require('cors');
+const axios = require('axios');
 const twilio = require('twilio');
-require('dotenv').config()
+
 const app = express();
 app.use(cors());
+app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+
+// Twilio credentials from .env
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
-const client = twilio(accountSid, authToken);
-const TWILIO_PHONE = process.env.TWILIO_PHONE;
-app.get('/', (req, res) => {
-  res.send('Twilio SMS API is working ✅');
-});
-app.post('/send-message', async (req, res) => {
-  const { to, message } = req.body;
+const twilioClient = twilio(accountSid, authToken);
+const twilioNumber = process.env.TWILIO_PHONE;
 
+app.get('/', (req, res) => {
+  res.send('Welcome to the Twilio SMS Backend!');
+});
+
+// ✅ Send SMS to specific number
+app.post('/start-webhook', async (req, res) => {
+  const { userId } = req.body;
+
+  const sms = `Please choose one of the following options and reply with the letter:\nA) Option A\nB) Option B\nC) Option C\nD) Option D`;
 
   try {
-    const result = await client.messages.create({
-      body: message,
-      from: TWILIO_PHONE,
-      to: to
+    await twilioClient.messages.create({
+      body: sms,
+      from: twilioNumber,
+      to: '+923267514362', // ✅ Correct format
     });
 
-    res.status(200).json({ success: true, sid: result.sid });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
+    res.json({ status: 'Message sent to Father via Twilio' });
+  } catch (err) {
+    console.error('Twilio error:', err.message);
+    res.status(500).send('Twilio message failed');
   }
 });
-const port = process.env.PORT
+
+// ✅ Receive response and store in LRS
+app.post('/twilio-reply', async (req, res) => {
+  const selectedOption = req.body.Body?.trim().toUpperCase();
+  const fromNumber = req.body.From;
+
+  console.log(`Father replied: ${selectedOption}`);
+
+  try {
+    await axios.post(`${process.env.LRS_URL}`, statement, {
+      auth: {
+        username: process.env.LRS_USER_NAME,
+        password: process.env.LRS_PASSWORD,
+      },
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    res.set('Content-Type', 'text/xml');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Message>Thanks! Your response has been recorded.</Message>
+</Response>`);
+  } catch (err) {
+    console.error('LRS save error:', err.message);
+    res.status(500).send('Failed to save to LRS');
+  }
+});
+
+// ✅ Retrieve Father's Response from LRS
+app.get('/father-response', async (req, res) => {
+  try {
+    const response = await axios.get(`${process.env.LRS_URL}`, {
+      auth: {
+        username: process.env.LRS_USER_NAME,
+        password: process.env.LRS_PASSWORD,
+      },
+      headers: {
+        'X-Experience-API-Version': '1.0.3',
+      },
+      params: {
+        verb: 'http://adlnet.gov/expapi/verbs/answered',
+        limit: 1,
+        ascending: false,
+      },
+    });
+
+    const latest = response.data.statements[0];
+    const option =
+      latest?.object?.definition?.name?.['en-US'] || 'No response yet';
+
+    res.json({ response: option });
+  } catch (err) {
+    console.error('Error fetching LRS:', err.message);
+    res.status(500).json({ error: 'Could not fetch response' });
+  }
+});
+
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(` Server is running at http://localhost:${port}`);
+  console.log(`🚀 Server running at http://localhost:${port}`);
 });
