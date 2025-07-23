@@ -27,6 +27,7 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioClient = twilio(accountSid, authToken);
 const twilioNumber = process.env.TWILIO_PHONE;
+const twilioReceiver = process.env.TWILIO_PHONE_RECEIVER;
 
 // ✅ Map options
 const optionsMap = {
@@ -49,7 +50,7 @@ app.post('/start-webhook', async (req, res) => {
     const result = await twilioClient.messages.create({
       body: message,
       from: twilioNumber,
-      to: '+923216832148', // ✅ Hardcoded father number
+      to: twilioReceiver, // ✅ Hardcoded father number
     });
 
     console.log('✅ SMS sent to father:', result.sid);
@@ -160,6 +161,18 @@ app.get('/father-response', async (req, res) => {
   } catch (error) {
     console.error('❌ Error fetching from LRS:', error.message);
     res.status(500).json({ error: 'Could not fetch response' });
+  }
+});
+
+app.get('/proxy-iframe', async (req, res) => {
+  try {
+    const iframeUrl =
+      'https://heartsinthemiddle.org/mod/scorm/loadSCO.php?a=12&scoid=47&currentorg=Captain_Bravebeard_and_the_Lost_Treasure_ORG&mode=&attempt=2';
+    const response = await axios.get(iframeUrl, { responseType: 'stream' });
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('❌ Error proxying iframe content:', error.message);
+    res.status(500).send('Failed to load iframe content');
   }
 });
 
